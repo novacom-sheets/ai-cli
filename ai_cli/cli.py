@@ -94,8 +94,14 @@ def is_safe_command(command: str) -> Tuple[bool, str]:
     return True, "OK"
 
 
-def confirm_command(command: str, auto_yes: bool = False) -> bool:
+def confirm_command(command: str, auto_yes: bool = False, copy_to_clip: bool = True) -> bool:
     """Ask user to confirm command execution."""
+    # Copy to clipboard by default
+    if copy_to_clip:
+        if copy_to_clipboard(command):
+            print(f"\n📋 Command copied to clipboard!")
+            print(f"   Paste in another terminal: Cmd+V")
+
     if auto_yes:
         return True
 
@@ -104,17 +110,32 @@ def confirm_command(command: str, auto_yes: bool = False) -> bool:
     print()
 
     while True:
-        response = input("Execute this command? [y/n/q] (y=yes, n=skip, q=quit): ").strip().lower()
+        response = input("Execute here? [y/n/q] (y=yes, n=no/paste elsewhere, q=quit): ").strip().lower()
 
         if response in ['y', 'yes']:
             return True
         elif response in ['n', 'no']:
+            print("⊘ Skipped - use clipboard to paste in another terminal")
             return False
         elif response in ['q', 'quit']:
             print("Execution cancelled.")
             sys.exit(0)
         else:
             print("Please enter 'y', 'n', or 'q'")
+
+
+def copy_to_clipboard(text: str) -> bool:
+    """Copy text to clipboard (macOS)."""
+    try:
+        subprocess.run(
+            ['pbcopy'],
+            input=text.encode('utf-8'),
+            check=True,
+            timeout=1
+        )
+        return True
+    except Exception:
+        return False
 
 
 def execute_command(command: str, verbose: bool = True) -> Tuple[bool, str, str]:
@@ -182,12 +203,14 @@ class CLI:
         if self.client:
             await self.client.__aexit__(None, None, None)
 
-    async def interactive_mode(self, enable_execute: bool = False):
+    async def interactive_mode(self, enable_execute: bool = False, enable_copy: bool = True):
         """Run interactive chat mode."""
         print("AI CLI - Interactive Mode")
         print("Type 'exit' to quit, 'help' for commands")
         if enable_execute:
             print("⚡ Command execution is ENABLED")
+        if enable_copy:
+            print("📋 Commands will be copied to clipboard")
         print("-" * 60)
 
         from .types import Message
@@ -257,7 +280,7 @@ class CLI:
                                 continue
 
                             # Ask for confirmation
-                            if confirm_command(cmd, auto_yes=False):
+                            if confirm_command(cmd, auto_yes=False, copy_to_clip=enable_copy):
                                 execute_command(cmd)
                             else:
                                 print("⊘ Skipped")
@@ -329,7 +352,8 @@ Usage examples:
                          auto_save: bool = False,
                          extract_code: bool = False,
                          execute_commands: bool = False,
-                         auto_yes: bool = False):
+                         auto_yes: bool = False,
+                         enable_copy: bool = True):
         """Quick single query without conversation history."""
         from .types import Message
 
@@ -401,7 +425,7 @@ Usage examples:
                         continue
 
                     # Ask for confirmation
-                    if confirm_command(cmd, auto_yes):
+                    if confirm_command(cmd, auto_yes, copy_to_clip=enable_copy):
                         success, stdout, stderr = execute_command(cmd)
                         executed_count += 1
                         if success:
@@ -518,6 +542,12 @@ For more information, visit: https://github.com/your-repo/ai-cli
     )
 
     parser.add_argument(
+        '--no-copy',
+        action='store_true',
+        help='Disable copying commands to clipboard'
+    )
+
+    parser.add_argument(
         '--interactive', '-i',
         action='store_true',
         default=True,
@@ -551,6 +581,9 @@ async def async_main():
     if args.once:
         args.interactive = False
 
+    # Handle copy flag
+    enable_copy = not args.no_copy
+
     cli = CLI()
 
     try:
@@ -567,7 +600,7 @@ async def async_main():
 
             # Special commands
             if query_text == 'chat':
-                await cli.interactive_mode(enable_execute=args.execute)
+                await cli.interactive_mode(enable_execute=args.execute, enable_copy=enable_copy)
                 return
 
             elif query_text.startswith('team '):
@@ -587,7 +620,8 @@ async def async_main():
                     auto_save=args.auto_save,
                     extract_code=args.extract_code,
                     execute_commands=args.execute,
-                    auto_yes=args.yes
+                    auto_yes=args.yes,
+                    enable_copy=enable_copy
                 )
 
                 # Continue in interactive mode if requested
@@ -595,7 +629,7 @@ async def async_main():
                     print("\n" + "=" * 60)
                     print("💬 Continuing in interactive mode...")
                     print("=" * 60)
-                    await cli.interactive_mode(enable_execute=args.execute)
+                    await cli.interactive_mode(enable_execute=args.execute, enable_copy=enable_copy)
 
                 return
 
@@ -603,7 +637,7 @@ async def async_main():
         else:
             parser.print_help()
             print("\nStarting interactive mode...\n")
-            await cli.interactive_mode(enable_execute=args.execute)
+            await cli.interactive_mode(enable_execute=args.execute, enable_copy=enable_copy)
 
     except KeyboardInterrupt:
         print("\n\nInterrupted by user")
