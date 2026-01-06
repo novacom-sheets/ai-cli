@@ -503,6 +503,12 @@ For more information, visit: https://github.com/your-repo/ai-cli
     )
 
     parser.add_argument(
+        '--interactive', '-i',
+        action='store_true',
+        help='Continue in interactive mode after initial query'
+    )
+
+    parser.add_argument(
         '--version', '-v',
         action='version',
         version='%(prog)s 0.1.0'
@@ -554,6 +560,14 @@ async def async_main():
                     execute_commands=args.execute,
                     auto_yes=args.yes
                 )
+
+                # Continue in interactive mode if requested
+                if args.interactive:
+                    print("\n" + "=" * 60)
+                    print("Continuing in interactive mode...")
+                    print("=" * 60)
+                    await cli.interactive_mode(enable_execute=args.execute)
+
                 return
 
         # No query provided - show help or start interactive mode
