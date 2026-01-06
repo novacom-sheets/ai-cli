@@ -222,7 +222,7 @@ class CLI:
 
                 # Get response
                 response = await self.client.chat(
-                    model="llama3.2",
+                    model="deepseek-r1:8b",
                     messages=messages,
                     stream=False
                 )
@@ -279,7 +279,7 @@ Usage examples:
         """
         print(help_text)
 
-    async def create_agent_team(self, specializations: list[str], model: str = "llama3.2"):
+    async def create_agent_team(self, specializations: list[str], model: str = "deepseek-r1:8b"):
         """Create a team of coding agents."""
         if not self.orchestrator:
             print("Error: CLI not initialized")
@@ -319,7 +319,7 @@ Usage examples:
             if len(result['response']) > 500:
                 print("...")
 
-    async def quick_query(self, query: str, model: str = "llama3.2",
+    async def quick_query(self, query: str, model: str = "deepseek-r1:8b",
                          output_file: Optional[str] = None,
                          auto_save: bool = False,
                          extract_code: bool = False,
@@ -431,7 +431,7 @@ def create_parser():
         epilog="""
 Examples:
   ai-cli "explain python decorators"                           # Quick query
-  ai-cli --model llama3.2 "write a function"                   # Query with specific model
+  ai-cli --model deepseek-r1:8b "write a function"              # Query with specific model
   ai-cli --auto-save "Напиши HELLO-WORLD.md"                   # Auto-save to file
   ai-cli --output result.py "write fibonacci function"         # Save to specific file
   ai-cli -s -c "create config.py"                              # Auto-save, extract code only
@@ -456,8 +456,8 @@ For more information, visit: https://github.com/your-repo/ai-cli
     # Optional arguments
     parser.add_argument(
         '--model', '-m',
-        default='llama3.2',
-        help='Model to use (default: llama3.2)'
+        default='deepseek-r1:8b',
+        help='Model to use (default: deepseek-r1:8b)'
     )
 
     parser.add_argument(
