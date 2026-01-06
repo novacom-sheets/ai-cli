@@ -170,9 +170,12 @@ class CLI:
 
     async def initialize(self, ollama_url: str = "http://localhost:11434"):
         """Initialize the CLI."""
+        print("🔌 Connecting to Ollama...", end=" ", flush=True)
         self.client = OllamaClient(base_url=ollama_url)
         await self.client.__aenter__()
         self.orchestrator = AgentOrchestrator(self.client, self.prompt_manager)
+        print("✓")
+        print()
 
     async def shutdown(self):
         """Shutdown the CLI."""
@@ -221,6 +224,7 @@ class CLI:
                 messages.append(Message(role="user", content=user_input))
 
                 # Get response
+                print("\n💭 Thinking...", flush=True)
                 response = await self.client.chat(
                     model="deepseek-r1:8b",
                     messages=messages,
@@ -236,10 +240,11 @@ class CLI:
 
                 # Execute commands if enabled
                 if execute_mode:
+                    print("\n🔍 Checking for executable commands...", flush=True)
                     commands = extract_shell_commands(assistant_message)
 
                     if commands:
-                        print(f"\n\n📋 Found {len(commands)} command(s)")
+                        print(f"✓ Found {len(commands)} command(s)\n")
 
                         for i, cmd in enumerate(commands, 1):
                             # Check if command is safe
@@ -336,11 +341,13 @@ Usage examples:
         print(f"Query: {query}")
         print("-" * 60)
 
+        print("\n💭 Generating response...", flush=True)
         response = await self.client.chat(
             model=model,
             messages=messages,
             stream=False
         )
+        print("✓ Done\n")
 
         assistant_message = response["message"]["content"]
 
@@ -373,10 +380,11 @@ Usage examples:
 
         # Execute commands if requested
         if execute_commands:
+            print("\n🔍 Checking for executable commands...", flush=True)
             commands = extract_shell_commands(assistant_message)
 
             if commands:
-                print(f"\n\n📋 Found {len(commands)} command(s) to execute:")
+                print(f"✓ Found {len(commands)} command(s) to execute:")
                 print("=" * 60)
 
                 executed_count = 0
@@ -493,7 +501,14 @@ For more information, visit: https://github.com/your-repo/ai-cli
     parser.add_argument(
         '--execute', '-x',
         action='store_true',
-        help='Execute shell commands from response with user confirmation'
+        default=True,
+        help='Execute shell commands from response with user confirmation (default: enabled)'
+    )
+
+    parser.add_argument(
+        '--no-execute',
+        action='store_true',
+        help='Disable command execution'
     )
 
     parser.add_argument(
@@ -505,7 +520,14 @@ For more information, visit: https://github.com/your-repo/ai-cli
     parser.add_argument(
         '--interactive', '-i',
         action='store_true',
-        help='Continue in interactive mode after initial query'
+        default=True,
+        help='Continue in interactive mode after initial query (default: enabled)'
+    )
+
+    parser.add_argument(
+        '--once',
+        action='store_true',
+        help='Execute only one query and exit (disable interactive mode)'
     )
 
     parser.add_argument(
@@ -521,6 +543,13 @@ async def async_main():
     """Async main CLI entry point."""
     parser = create_parser()
     args = parser.parse_args()
+
+    # Handle conflicting flags
+    if args.no_execute:
+        args.execute = False
+
+    if args.once:
+        args.interactive = False
 
     cli = CLI()
 
@@ -564,7 +593,7 @@ async def async_main():
                 # Continue in interactive mode if requested
                 if args.interactive:
                     print("\n" + "=" * 60)
-                    print("Continuing in interactive mode...")
+                    print("💬 Continuing in interactive mode...")
                     print("=" * 60)
                     await cli.interactive_mode(enable_execute=args.execute)
 
