@@ -5,7 +5,7 @@ Offline AI assistant for code writing, command execution, and chat working with 
 ## Installation
 
 ```bash
-pip install ai-cli
+pip install ai-offline-cli
 ```
 
 ## Usage

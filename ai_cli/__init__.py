@@ -1,6 +1,6 @@
 """Low-level AI CLI for multi-agent development with offline models."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .client import OllamaClient
 from .agent import Agent, AgentOrchestrator

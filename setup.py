@@ -6,8 +6,8 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="ai-cli",
-    version="0.1.0",
+    name="ai-offline-cli",
+    version="0.1.1",
     author="AI CLI Team",
     description="Offline AI assistant for code writing, command execution, and chat working with any offline models",
     long_description=long_description,
