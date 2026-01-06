@@ -70,3 +70,30 @@ organized_project/
 user_auth_project/
 ai_generated_project/
 my_project/
+
+# Build and distribution
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Environment variables and secrets
+.env
+.env.local
+*.key
+*.pem
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

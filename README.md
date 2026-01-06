@@ -2,6 +2,8 @@
 
 Offline AI assistant for code writing, command execution, and chat working with any offline models.
 
+**Website:** [novacom.ru](https://novacom.ru)
+
 ## Installation
 
 ```bash
