@@ -3,9 +3,10 @@
 import argparse
 import asyncio
 import re
+import subprocess
 import sys
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 from .client import OllamaClient
 from .agent import AgentOrchestrator
@@ -44,6 +45,121 @@ def extract_code_blocks(text: str) -> str:
     return text
 
 
+def extract_shell_commands(text: str) -> List[str]:
+    """Extract shell commands from markdown code blocks."""
+    commands = []
+
+    # Find code blocks marked as bash, sh, shell, or console
+    patterns = [
+        r'```(?:bash|sh|shell|console)\n(.*?)```',
+        r'```\n(\$.*?)```',  # Commands starting with $
+    ]
+
+    for pattern in patterns:
+        matches = re.findall(pattern, text, re.DOTALL)
+        for match in matches:
+            # Split by newlines and process each line
+            for line in match.strip().split('\n'):
+                line = line.strip()
+                # Remove $ or # prefix
+                if line.startswith('$ '):
+                    line = line[2:]
+                elif line.startswith('# ') and not line.startswith('#!/'):
+                    continue  # Skip comments
+
+                if line and not line.startswith('#'):
+                    commands.append(line)
+
+    return commands
+
+
+def is_safe_command(command: str) -> Tuple[bool, str]:
+    """Check if command is safe to execute with user confirmation."""
+    dangerous_patterns = [
+        r'\brm\s+-rf\s+/',  # rm -rf /
+        r'\brm\s+-rf\s+\*',  # rm -rf *
+        r':\(\)\{.*\};',  # Fork bomb
+        r'>\s*/dev/sd[a-z]',  # Write to disk
+        r'dd\s+if=.*of=/dev',  # dd to device
+        r'mkfs\.',  # Format filesystem
+        r'sudo\s+rm',  # sudo rm
+        r'curl.*\|\s*(?:bash|sh)',  # Pipe curl to shell
+        r'wget.*\|\s*(?:bash|sh)',  # Pipe wget to shell
+    ]
+
+    for pattern in dangerous_patterns:
+        if re.search(pattern, command, re.IGNORECASE):
+            return False, f"Potentially dangerous command detected: {pattern}"
+
+    return True, "OK"
+
+
+def confirm_command(command: str, auto_yes: bool = False) -> bool:
+    """Ask user to confirm command execution."""
+    if auto_yes:
+        return True
+
+    print(f"\n🔧 Command to execute:")
+    print(f"   {command}")
+    print()
+
+    while True:
+        response = input("Execute this command? [y/n/q] (y=yes, n=skip, q=quit): ").strip().lower()
+
+        if response in ['y', 'yes']:
+            return True
+        elif response in ['n', 'no']:
+            return False
+        elif response in ['q', 'quit']:
+            print("Execution cancelled.")
+            sys.exit(0)
+        else:
+            print("Please enter 'y', 'n', or 'q'")
+
+
+def execute_command(command: str, verbose: bool = True) -> Tuple[bool, str, str]:
+    """Execute shell command and return result."""
+    try:
+        if verbose:
+            print(f"\n▶ Executing: {command}")
+            print("-" * 60)
+
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        success = result.returncode == 0
+
+        if verbose:
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(f"stderr: {result.stderr}", file=sys.stderr)
+
+            if success:
+                print("✓ Command completed successfully")
+            else:
+                print(f"✗ Command failed with exit code {result.returncode}")
+            print("-" * 60)
+
+        return success, result.stdout, result.stderr
+
+    except subprocess.TimeoutExpired:
+        error_msg = "Command timed out after 30 seconds"
+        if verbose:
+            print(f"✗ {error_msg}")
+        return False, "", error_msg
+    except Exception as e:
+        error_msg = str(e)
+        if verbose:
+            print(f"✗ Error executing command: {error_msg}")
+        return False, "", error_msg
+
+
 class CLI:
     """Simple CLI for interacting with the AI system."""
 
@@ -63,10 +179,12 @@ class CLI:
         if self.client:
             await self.client.__aexit__(None, None, None)
 
-    async def interactive_mode(self):
+    async def interactive_mode(self, enable_execute: bool = False):
         """Run interactive chat mode."""
         print("AI CLI - Interactive Mode")
         print("Type 'exit' to quit, 'help' for commands")
+        if enable_execute:
+            print("⚡ Command execution is ENABLED")
         print("-" * 60)
 
         from .types import Message
@@ -74,6 +192,8 @@ class CLI:
         messages = [
             Message(role="system", content="You are a helpful AI assistant for software development.")
         ]
+
+        execute_mode = enable_execute
 
         while True:
             try:
@@ -85,6 +205,13 @@ class CLI:
 
                 if user_input.lower() == "help":
                     self.print_help()
+                    continue
+
+                # Toggle execute mode
+                if user_input.lower() in ["/execute", "/x"]:
+                    execute_mode = not execute_mode
+                    status = "ENABLED" if execute_mode else "DISABLED"
+                    print(f"⚡ Command execution is now {status}")
                     continue
 
                 if not user_input:
@@ -107,6 +234,29 @@ class CLI:
 
                 print(f"\nAssistant: {assistant_message}")
 
+                # Execute commands if enabled
+                if execute_mode:
+                    commands = extract_shell_commands(assistant_message)
+
+                    if commands:
+                        print(f"\n\n📋 Found {len(commands)} command(s)")
+
+                        for i, cmd in enumerate(commands, 1):
+                            # Check if command is safe
+                            safe, reason = is_safe_command(cmd)
+
+                            if not safe:
+                                print(f"\n⚠️  Command {i}: BLOCKED (unsafe)")
+                                print(f"   {cmd}")
+                                print(f"   Reason: {reason}")
+                                continue
+
+                            # Ask for confirmation
+                            if confirm_command(cmd, auto_yes=False):
+                                execute_command(cmd)
+                            else:
+                                print("⊘ Skipped")
+
             except KeyboardInterrupt:
                 print("\n\nGoodbye!")
                 break
@@ -119,11 +269,13 @@ class CLI:
 Available commands:
   exit, quit     - Exit the program
   help           - Show this help message
+  /execute, /x   - Toggle command execution mode
 
 Usage examples:
   - Ask questions about coding
   - Request code generation
   - Get explanations of concepts
+  - Type /execute to enable command execution
         """
         print(help_text)
 
@@ -170,7 +322,9 @@ Usage examples:
     async def quick_query(self, query: str, model: str = "llama3.2",
                          output_file: Optional[str] = None,
                          auto_save: bool = False,
-                         extract_code: bool = False):
+                         extract_code: bool = False,
+                         execute_commands: bool = False,
+                         auto_yes: bool = False):
         """Quick single query without conversation history."""
         from .types import Message
 
@@ -217,6 +371,42 @@ Usage examples:
             # Just print to console
             print(f"\n{assistant_message}")
 
+        # Execute commands if requested
+        if execute_commands:
+            commands = extract_shell_commands(assistant_message)
+
+            if commands:
+                print(f"\n\n📋 Found {len(commands)} command(s) to execute:")
+                print("=" * 60)
+
+                executed_count = 0
+                success_count = 0
+
+                for i, cmd in enumerate(commands, 1):
+                    # Check if command is safe
+                    safe, reason = is_safe_command(cmd)
+
+                    if not safe:
+                        print(f"\n⚠️  Command {i}: BLOCKED (unsafe)")
+                        print(f"   {cmd}")
+                        print(f"   Reason: {reason}")
+                        continue
+
+                    # Ask for confirmation
+                    if confirm_command(cmd, auto_yes):
+                        success, stdout, stderr = execute_command(cmd)
+                        executed_count += 1
+                        if success:
+                            success_count += 1
+                    else:
+                        print("⊘ Skipped")
+
+                print("\n" + "=" * 60)
+                print(f"Summary: Executed {executed_count}/{len(commands)} commands")
+                print(f"         Success: {success_count}/{executed_count}")
+            else:
+                print("\nℹ No executable commands found in response")
+
         return assistant_message
 
     async def list_models(self):
@@ -240,14 +430,17 @@ def create_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  ai-cli "explain python decorators"                    # Quick query
-  ai-cli --model llama3.2 "write a function"            # Query with specific model
-  ai-cli --auto-save "Напиши HELLO-WORLD.md"            # Auto-save to file
-  ai-cli --output result.py "write fibonacci function"  # Save to specific file
-  ai-cli -s -c "create config.py"                       # Auto-save, extract code only
-  ai-cli chat                                            # Interactive chat mode
-  ai-cli --models                                        # List available models
-  ai-cli team "build a REST API"                         # Multi-agent workflow
+  ai-cli "explain python decorators"                           # Quick query
+  ai-cli --model llama3.2 "write a function"                   # Query with specific model
+  ai-cli --auto-save "Напиши HELLO-WORLD.md"                   # Auto-save to file
+  ai-cli --output result.py "write fibonacci function"         # Save to specific file
+  ai-cli -s -c "create config.py"                              # Auto-save, extract code only
+  ai-cli --execute "how to list all python files"              # Execute commands with confirmation
+  ai-cli -x "show disk space"                                  # Execute commands (short form)
+  ai-cli -x -y "create backup directory"                       # Auto-confirm execution
+  ai-cli chat                                                   # Interactive chat mode
+  ai-cli --models                                              # List available models
+  ai-cli team "build a REST API"                               # Multi-agent workflow
 
 For more information, visit: https://github.com/your-repo/ai-cli
         """
@@ -298,6 +491,18 @@ For more information, visit: https://github.com/your-repo/ai-cli
     )
 
     parser.add_argument(
+        '--execute', '-x',
+        action='store_true',
+        help='Execute shell commands from response with user confirmation'
+    )
+
+    parser.add_argument(
+        '--yes', '-y',
+        action='store_true',
+        help='Auto-confirm all command executions (use with caution!)'
+    )
+
+    parser.add_argument(
         '--version', '-v',
         action='version',
         version='%(prog)s 0.1.0'
@@ -327,7 +532,7 @@ async def async_main():
 
             # Special commands
             if query_text == 'chat':
-                await cli.interactive_mode()
+                await cli.interactive_mode(enable_execute=args.execute)
                 return
 
             elif query_text.startswith('team '):
@@ -345,7 +550,9 @@ async def async_main():
                     model=args.model,
                     output_file=args.output,
                     auto_save=args.auto_save,
-                    extract_code=args.extract_code
+                    extract_code=args.extract_code,
+                    execute_commands=args.execute,
+                    auto_yes=args.yes
                 )
                 return
 
@@ -353,7 +560,7 @@ async def async_main():
         else:
             parser.print_help()
             print("\nStarting interactive mode...\n")
-            await cli.interactive_mode()
+            await cli.interactive_mode(enable_execute=args.execute)
 
     except KeyboardInterrupt:
         print("\n\nInterrupted by user")
