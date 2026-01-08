@@ -1,17 +1,29 @@
 """Type definitions for AI CLI."""
 
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
-class Message(BaseModel):
+class ExtensibleModel(BaseModel):
+    """Base model that allows plugin extensions."""
+    model_config = ConfigDict(extra="allow")  # Allow additional fields from plugins
+
+    def get_extensions(self) -> Dict[str, Any]:
+        """Get all extension fields added by plugins."""
+        base_fields = set(self.model_fields.keys())
+        all_fields = set(self.model_dump().keys())
+        extension_fields = all_fields - base_fields
+        return {k: getattr(self, k) for k in extension_fields if hasattr(self, k)}
+
+
+class Message(ExtensibleModel):
     """Chat message."""
     role: str = Field(..., description="Role: system, user, or assistant")
     content: str = Field(..., description="Message content")
     images: Optional[List[str]] = Field(None, description="Image data (base64)")
 
 
-class GenerateRequest(BaseModel):
+class GenerateRequest(ExtensibleModel):
     """Generate request parameters."""
     model: str
     prompt: str
@@ -23,7 +35,7 @@ class GenerateRequest(BaseModel):
     options: Optional[Dict[str, Any]] = None
 
 
-class GenerateResponse(BaseModel):
+class GenerateResponse(ExtensibleModel):
     """Generate response."""
     model: str
     created_at: str
@@ -38,7 +50,7 @@ class GenerateResponse(BaseModel):
     eval_duration: Optional[int] = None
 
 
-class ResourceUsage(BaseModel):
+class ResourceUsage(ExtensibleModel):
     """System resource usage."""
     cpu_percent: float = Field(..., description="CPU usage percentage")
     memory_percent: float = Field(..., description="Memory usage percentage")
@@ -46,7 +58,7 @@ class ResourceUsage(BaseModel):
     gpu_usage: Optional[Dict[str, Any]] = Field(None, description="GPU usage if available")
 
 
-class AgentConfig(BaseModel):
+class AgentConfig(ExtensibleModel):
     """Agent configuration."""
     name: str = Field(..., description="Agent name")
     role: str = Field(..., description="Agent role description")
@@ -65,5 +77,10 @@ class AgentConfig(BaseModel):
 
         if self.max_tokens:
             lines.append(f"PARAMETER num_predict {self.max_tokens}")
+
+        # Add plugin extensions as parameters
+        for key, value in self.get_extensions().items():
+            if isinstance(value, (int, float, str, bool)):
+                lines.append(f"PARAMETER {key} {value}")
 
         return "\n".join(lines)
